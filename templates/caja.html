@@ -1,126 +1,98 @@
-{% extends 'base.html' %} {% block content %}
-<div class="container-fluid">
-    <h2 class="text-center">Caja</h2>
+{% extends 'base.html' %} {% block title %}Caja{% endblock %} {% block content %}
+<h1 class="h3 mb-4 text-gray-800">Caja</h1>
 
-    <form method="POST" action="{{ url_for('caja') }}" id="ventaForm">
-        <div class="form-group">
-            <label for="codigoBarra">Buscar Producto por Código de Barras:</label>
-            <input type="text" class="form-control" id="codigoBarra" placeholder="Ingrese el código de barras">
-            <button type="button" class="btn btn-primary mt-2" onclick="buscarProducto()">Buscar</button>
-        </div>
-
-        <div class="form-group">
-            <label for="producto">Seleccionar Productos:</label>
-            <select class="form-control" id="producto" name="producto_id" required>
-                {% for producto in productos %}
-                <option value="{{ producto.id }}" data-precio="{{ producto.precio }}" data-nombre="{{ producto.nombre }}" data-cantidad="{{ producto.cantidad }}" data-codigo="{{ producto.codigo_barra }}">
-                    {{ producto.nombre }} - ${{ producto.precio }} (Disponible: {{ producto.cantidad }})
-                </option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <div class="form-group">
-            <label for="cantidad">Cantidad:</label>
-            <input type="number" class="form-control" id="cantidad" name="cantidad" min="1" required>
-        </div>
-
-        <button type="button" class="btn btn-primary" onclick="addProduct()">Agregar Producto</button>
-
-        <hr>
-
-        <h4>Total: <span id="total">$0.00</span></h4>
-        <input type="hidden" name="total" id="totalInput" value="0">
-
-        <table class="table mt-4">
-            <thead>
-                <tr>
-                    <th>Producto</th>
-                    <th>Precio Unitario</th>
-                    <th>Cantidad</th>
-                    <th>Total</th>
-                </tr>
-            </thead>
-            <tbody id="productosTable">
-                <!-- Productos agregados se mostrarán aquí -->
-            </tbody>
-        </table>
-
-        <button type="submit" class="btn btn-success">Realizar Venta</button>
-    </form>
-
-    {% with messages = get_flashed_messages() %} {% if messages %}
-    <div class="alert alert-success mt-2">
-        {% for message in messages %}
-        <p>{{ message }}</p>
-        {% endfor %}
+<!-- Formulario para agregar producto por código de barra -->
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Escanear Producto</h6>
     </div>
-    {% endif %} {% endwith %}
+    <div class="card-body">
+        <form id="form-agregar-producto">
+            <div class="form-group">
+                <label for="codigo_barra">Código de Barra</label>
+                <input type="text" class="form-control" id="codigo_barra" name="codigo_barra" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Agregar Producto</button>
+        </form>
+    </div>
 </div>
+
+<!-- Lista de productos en la venta -->
+<div class="card shadow mb-4">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">Productos en la Venta</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered" id="tabla-productos" width="100%" cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Código de Barra</th>
+                        <th>Nombre</th>
+                        <th>Precio</th>
+                        <th>Cantidad</th>
+                        <th>Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in session.get('venta_items', []) %}
+                    <tr>
+                        <td>{{ item.codigo_barra }}</td>
+                        <td>{{ item.nombre }}</td>
+                        <td>{{ item.precio }}</td>
+                        <td>{{ item.cantidad }}</td>
+                        <td>{{ item.precio * item.cantidad }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Botón para finalizar la venta -->
+<div class="card shadow mb-4">
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('finalizar_venta') }}">
+            <input type="hidden" name="total" id="total" value="{{ total }}">
+            <button type="submit" class="btn btn-success">Finalizar Venta</button>
+        </form>
+    </div>
+</div>
+
 <script>
-    // Ejemplo de JSON estático para depuración
-    var productos = [{
-        "id": 1,
-        "nombre": "Producto 1",
-        "precio": 10.0,
-        "cantidad": 5,
-        "codigo_barra": "123456789012"
-    }, {
-        "id": 2,
-        "nombre": "Producto 2",
-        "precio": 20.0,
-        "cantidad": 10,
-        "codigo_barra": "234567890123"
-    }];
+    document.getElementById('form-agregar-producto').addEventListener('submit', function(event) {
+        event.preventDefault();
+        const codigoBarra = document.getElementById('codigo_barra').value;
 
-    console.log(productos); // Verifica si productos está cargado correctamente
+        fetch('/agregar_producto', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'codigo_barra=' + codigoBarra
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const tablaProductos = document.getElementById('tabla-productos').getElementsByTagName('tbody')[0];
+                    tablaProductos.innerHTML = '';
 
-    function buscarProducto() {
-        var codigoBarra = document.getElementById('codigoBarra').value;
-        var productoEncontrado = productos.find(producto => producto.codigo_barra === codigoBarra);
+                    data.venta_items.forEach(item => {
+                        const row = tablaProductos.insertRow();
+                        row.insertCell(0).innerText = item.codigo_barra;
+                        row.insertCell(1).innerText = item.nombre;
+                        row.insertCell(2).innerText = item.precio;
+                        row.insertCell(3).innerText = item.cantidad;
+                        row.insertCell(4).innerText = (item.precio * item.cantidad).toFixed(2);
+                    });
 
-        if (productoEncontrado) {
-            var productoSelect = document.getElementById('producto');
-            for (var i = 0; i < productoSelect.options.length; i++) {
-                if (productoSelect.options[i].value == productoEncontrado.id) {
-                    productoSelect.selectedIndex = i;
-                    break;
+                    document.getElementById('codigo_barra').value = '';
+                } else {
+                    alert(data.message);
                 }
-            }
-        } else {
-            alert('Producto no encontrado.');
-        }
-    }
-
-    function addProduct() {
-        var productoSelect = document.getElementById('producto');
-        var cantidadInput = document.getElementById('cantidad');
-        var totalElement = document.getElementById('total');
-        var totalInput = document.getElementById('totalInput');
-        var productosTable = document.getElementById('productosTable');
-
-        var productoId = productoSelect.value;
-        var cantidad = parseInt(cantidadInput.value);
-        var productoOption = productoSelect.options[productoSelect.selectedIndex];
-        var productoNombre = productoOption.getAttribute('data-nombre');
-        var productoPrecio = parseFloat(productoOption.getAttribute('data-precio'));
-        var productoCantidadDisponible = parseInt(productoOption.getAttribute('data-cantidad'));
-
-        if (productoId && cantidad && cantidad > 0 && cantidad <= productoCantidadDisponible) {
-            var subtotal = productoPrecio * cantidad;
-            var row = document.createElement('tr');
-            row.innerHTML = '<td>' + productoNombre + '</td><td>$' + productoPrecio.toFixed(2) + '</td><td>' + cantidad + '</td><td>$' + subtotal.toFixed(2) + '</td>';
-            productosTable.appendChild(row);
-
-            // Actualizar total
-            var currentTotal = parseFloat(totalElement.textContent.replace('$', '')) || 0;
-            currentTotal += subtotal;
-            totalElement.textContent = '$' + currentTotal.toFixed(2);
-            totalInput.value = currentTotal.toFixed(2);
-        } else {
-            alert('Cantidad inválida o producto no seleccionado.');
-        }
-    }
+            })
+            .catch(error => console.error('Error:', error));
+    });
 </script>
-
 {% endblock %}

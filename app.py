@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import create_app, db
 from models import Usuario, Producto, Venta, DetalleVenta
@@ -9,13 +9,10 @@ import barcode
 from barcode.writer import ImageWriter
 
 app = create_app()
-
 def generate_invoice_pdf(venta):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font('Arial', '', 12)
-
-    # Agregar logo
     logo_path = 'static/img/logo.png'
     if os.path.exists(logo_path):
         pdf.image(logo_path, x=10, y=8, w=33)
@@ -31,7 +28,6 @@ def generate_invoice_pdf(venta):
 
     pdf.set_font('Arial', '', 12)
     
-    # Encabezado de la tabla
     pdf.cell(60, 10, 'Producto', 1, 0, 'C')
     pdf.cell(30, 10, 'Cantidad', 1, 0, 'C')
     pdf.cell(40, 10, 'Precio Unitario', 1, 0, 'C')
@@ -41,7 +37,7 @@ def generate_invoice_pdf(venta):
     detalles = DetalleVenta.query.filter_by(id_venta=venta.id).all()
     if detalles:
         for detalle in detalles:
-            producto = db.session.get(Producto, detalle.id_producto)  # Usar Session.get() en lugar de query.get()
+            producto = db.session.get(Producto, detalle.id_producto)
             if producto:
                 subtotal = detalle.cantidad * detalle.precio_unitario
                 total += subtotal
@@ -54,7 +50,6 @@ def generate_invoice_pdf(venta):
     
     pdf.ln(10)
     
-    # Total
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, f'Total:', 0, 0, 'L')
     pdf.cell(0, 10, f'${total:.2f}', 0, 1, 'R')
@@ -67,44 +62,6 @@ def index():
         return redirect(url_for('login'))
     return render_template('index.html')
 
-@app.route('/caja', methods=['GET', 'POST'])
-def caja():
-    if 'user_id' not in session or session['user_role'] not in ['cajero', 'administrador']:
-        return redirect(url_for('login'))
-
-    if request.method == 'POST':
-        productos_barras = request.form.getlist('producto_barra')  # Cambiado de producto_id a producto_barra
-        cantidades = request.form.getlist('cantidad')
-        total = float(request.form['total'])
-
-        venta = Venta(total=total, id_cajero=session['user_id'])
-        db.session.add(venta)
-        db.session.commit()
-
-        for codigo_barra, cantidad in zip(productos_barras, cantidades):
-            producto = db.session.get(Producto, codigo_barra)  # Cambiado a codigo_barra
-            if producto and producto.cantidad >= int(cantidad):
-                subtotal = producto.precio * int(cantidad)
-                producto.cantidad -= int(cantidad)
-                detalle = DetalleVenta(id_venta=venta.id, id_producto=producto.codigo_barra, cantidad=cantidad, precio_unitario=producto.precio)  # Cambiado a codigo_barra
-                db.session.add(detalle)
-            else:
-                flash(f'Cantidad insuficiente para el producto {producto.nombre}')
-        
-        db.session.commit()
-
-        # Generar boleta en PDF
-        boleta_pdf = generate_invoice_pdf(venta)
-        response = send_file(io.BytesIO(boleta_pdf), as_attachment=True, download_name=f'boleta_{venta.id}.pdf', mimetype='application/pdf')
-
-        # Redirigir a la página de caja después de completar la venta
-        flash('Venta realizada exitosamente. Se está generando la boleta.')
-        return response
-
-    productos = Producto.query.all()
-    return render_template('caja.html', productos=productos)
-
-
 @app.route('/productos', methods=['GET', 'POST'])
 def productos():
     if 'user_id' not in session or session['user_role'] != 'administrador':
@@ -116,9 +73,8 @@ def productos():
         cantidad = int(request.form['cantidad'])
         codigo_barra = request.form['codigo_barra']
 
-        nuevo_producto = Producto(nombre=nombre, precio=precio, cantidad=cantidad, codigo_barra=codigo_barra)
+        nuevo_producto = Producto(codigo_barra=codigo_barra, nombre=nombre, precio=precio, cantidad=cantidad)
 
-        # Generar el código de barras
         ean = barcode.get('ean13', codigo_barra, writer=ImageWriter())
         filename = f'static/barcodes/{codigo_barra}.png'
         ean.save(filename)
@@ -131,60 +87,105 @@ def productos():
     productos = Producto.query.all()
     return render_template('productos.html', productos=productos)
 
-@app.route('/editar_producto/<codigo_barra>', methods=['GET', 'POST'])
-def editar_producto(codigo_barra):
-    if 'user_id' not in session or session['user_role'] != 'administrador':
-        return redirect(url_for('login'))
-
-    producto = Producto.query.get(codigo_barra)
-    if not producto:
-        flash('Producto no encontrado.')
-        return redirect(url_for('productos'))
-
-    if request.method == 'POST':
-        producto.nombre = request.form['nombre']
-        producto.precio = float(request.form['precio'])
-        producto.cantidad = int(request.form['cantidad'])
-        # `codigo_barra` no se actualiza ya que es la clave primaria
-        
-        db.session.commit()
-        flash('Producto actualizado con éxito!')
-        return redirect(url_for('productos'))
-
-    return render_template('editar_producto.html', producto=producto)
-
-@app.route('/eliminar_producto/<codigo_barra>', methods=['POST'])
-def eliminar_producto(codigo_barra):
-    if 'user_id' not in session or session['user_role'] != 'administrador':
-        return redirect(url_for('login'))
-
-    producto = Producto.query.filter_by(codigo_barra=codigo_barra).first()
-    if producto:
-        db.session.delete(producto)
-        db.session.commit()
-        flash('Producto eliminado con éxito!')
-    else:
-        flash('Producto no encontrado.')
-
-    return redirect(url_for('productos'))
-
-@app.route('/buscar_producto', methods=['GET'])
-def buscar_producto():
+@app.route('/caja', methods=['GET', 'POST'])
+def caja():
     if 'user_id' not in session or session['user_role'] not in ['cajero', 'administrador']:
         return redirect(url_for('login'))
-    
-    codigo_barra = request.args.get('codigo_barra')
-    producto = Producto.query.filter_by(codigo_barra=codigo_barra).first()
-    
-    if producto:
-        return {
-            'nombre': producto.nombre,
-            'precio': producto.precio,
-            'cantidad': producto.cantidad
-        }
-    else:
-        return {'error': 'Producto no encontrado'}, 404
 
+    if request.method == 'POST':
+        productos_ids = request.form.getlist('producto_id')
+        cantidades = request.form.getlist('cantidad')
+        total = float(request.form['total'])
+
+        venta = Venta(total=total, id_cajero=session['user_id'])
+        db.session.add(venta)
+        db.session.commit()
+
+        for producto_id, cantidad in zip(productos_ids, cantidades):
+            producto = db.session.get(Producto, producto_id)
+            if producto and producto.cantidad >= int(cantidad):
+                subtotal = producto.precio * int(cantidad)
+                producto.cantidad -= int(cantidad)
+                detalle = DetalleVenta(id_venta=venta.id, id_producto=producto.id, cantidad=cantidad, precio_unitario=producto.precio)
+                db.session.add(detalle)
+            else:
+                flash(f'Cantidad insuficiente para el producto {producto.nombre}')
+        
+        db.session.commit()
+
+        boleta_pdf = generate_invoice_pdf(venta)
+        response = send_file(io.BytesIO(boleta_pdf), as_attachment=True, download_name=f'boleta_{venta.id}.pdf', mimetype='application/pdf')
+
+        flash('Venta realizada exitosamente. Se está generando la boleta.')
+        return response
+
+    productos = Producto.query.all()
+    return render_template('caja.html', productos=productos)
+
+@app.route('/agregar_producto', methods=['POST'])
+def agregar_producto():
+    if 'user_id' not in session or session['user_role'] not in ['cajero', 'administrador']:
+        return redirect(url_for('login'))
+
+    codigo_barra = request.form['codigo_barra']
+    producto = Producto.query.filter_by(codigo_barra=codigo_barra).first()
+
+    if producto:
+        venta_items = session.get('venta_items', [])
+        found = False
+        for item in venta_items:
+            if item['codigo_barra'] == codigo_barra:
+                item['cantidad'] += 1
+                found = True
+                break
+
+        if not found:
+            venta_items.append({
+                'codigo_barra': producto.codigo_barra,
+                'nombre': producto.nombre,
+                'precio': producto.precio,
+                'cantidad': 1
+            })
+
+        session['venta_items'] = venta_items
+        return jsonify({'success': True, 'venta_items': venta_items})
+    else:
+        return jsonify({'success': False, 'message': 'Producto no encontrado'}), 404
+
+@app.route('/finalizar_venta', methods=['POST'])
+def finalizar_venta():
+    if 'user_id' not in session or session['user_role'] not in ['cajero', 'administrador']:
+        return redirect(url_for('login'))
+
+    venta_items = session.get('venta_items', [])
+    if not venta_items:
+        flash('No hay productos en la venta.')
+        return redirect(url_for('caja'))
+
+    total = sum(item['precio'] * item['cantidad'] for item in venta_items)
+    venta = Venta(total=total, id_cajero=session['user_id'])
+    db.session.add(venta)
+    db.session.commit()
+
+    for item in venta_items:
+        producto = Producto.query.filter_by(codigo_barra=item['codigo_barra']).first()
+        if producto and producto.cantidad >= item['cantidad']:
+            producto.cantidad -= item['cantidad']
+            detalle = DetalleVenta(id_venta=venta.id, id_producto=producto.codigo_barra, cantidad=item['cantidad'], precio_unitario=item['precio'])
+            db.session.add(detalle)
+        else:
+            flash(f'Cantidad insuficiente para el producto {producto.nombre}')
+            db.session.rollback()
+            return redirect(url_for('caja'))
+
+    db.session.commit()
+    session.pop('venta_items', None)
+
+    boleta_pdf = generate_invoice_pdf(venta)
+    response = send_file(io.BytesIO(boleta_pdf), as_attachment=True, download_name=f'boleta_{venta.id}.pdf', mimetype='application/pdf')
+
+    flash('Venta realizada exitosamente. Se está generando la boleta.')
+    return response
 
 @app.route('/reportes', methods=['GET'])
 def reportes():
@@ -211,7 +212,7 @@ def login():
             session['user_id'] = user.id
             session['user_role'] = user.rol
             return redirect(url_for('index'))
-        flash('Credenciales inválidas.')
+        flash('Credenciales incorrectas. Intente nuevamente.')
 
     return render_template('login.html')
 
@@ -219,9 +220,7 @@ def login():
 def logout():
     session.pop('user_id', None)
     session.pop('user_role', None)
-    flash('Has cerrado sesión exitosamente.')
     return redirect(url_for('login'))
 
 if __name__ == "__main__":
     app.run(debug=True)
-
