@@ -1,0 +1,24 @@
+{% extends 'base.html' %} {% block title %}Reportes{% endblock %} {% block content %}
+<h1 class="h3 mb-4 text-gray-800">Reportes de Ventas</h1>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Fecha</th>
+            <th>Total</th>
+            <th>Cajero</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for venta in ventas %}
+        <tr>
+            <td>{{ venta.id }}</td>
+            <td>{{ venta.fecha }}</td>
+            <td>${{ venta.total }}</td>
+            <td>{{ venta.id_cajero }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
