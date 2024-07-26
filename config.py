@@ -14,7 +14,7 @@ def create_app():
     db.init_app(app)
 
     with app.app_context():
-        from models import Usuario, Producto, Venta, DetalleVenta  # Importar modelos aquí para crear tablas
+        from app.models import Usuario, Producto, Venta, DetalleVenta  # Importar modelos aquí para crear tablas
         db.create_all()  # Crear tablas en la base de datos
 
         # Crear usuario administrador si no existe

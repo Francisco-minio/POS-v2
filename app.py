@@ -2,7 +2,7 @@ import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import create_app, db
-from models import Usuario, Producto, Venta, DetalleVenta
+from app.models import Usuario, Producto, Venta, DetalleVenta
 from fpdf import FPDF
 import io
 import barcode

@@ -1,4 +1,4 @@
-from config import db
+from .. import db
 
 class Usuario(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -21,7 +21,6 @@ class Venta(db.Model):
 class DetalleVenta(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     id_venta = db.Column(db.Integer, db.ForeignKey('venta.id'), nullable=False)
-    id_producto = db.Column(db.String(12), db.ForeignKey('producto.codigo_barra'), nullable=False)
+    codigo_barra = db.Column(db.String(12), db.ForeignKey('producto.codigo_barra'), nullable=False)
     cantidad = db.Column(db.Integer, nullable=False)
     precio_unitario = db.Column(db.Float, nullable=False)
-    descripcion = db.Column(db.String(200), nullable=True)  # Nueva columna para la descripción
